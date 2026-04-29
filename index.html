@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Sling Shot Sky</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <canvas id="gameCanvas" aria-label="Sling Shot Sky Spielfeld" tabindex="0"></canvas>
+
+      <header class="hud" aria-label="Spielstatus">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>Sling Shot Sky</span>
+        </div>
+        <div class="stats">
+          <span id="levelName">Level 1</span>
+          <span><b id="shotsLeft">4</b> Wurf</span>
+          <span><b id="score">0</b> Punkte</span>
+        </div>
+        <div class="actions">
+          <button id="resetButton" class="icon-button" type="button" title="Zuruecksetzen" aria-label="Zuruecksetzen">
+            &#8635;
+          </button>
+          <button id="nextButton" class="icon-button" type="button" title="Naechstes Level" aria-label="Naechstes Level">
+            &rsaquo;
+          </button>
+        </div>
+      </header>
+
+      <div id="statusMessage" class="status-message" aria-live="polite"></div>
+
+      <section id="leaderboardPanel" class="leaderboard-panel" aria-label="Bestenliste" hidden>
+        <form id="scoreForm" class="leaderboard-box" autocomplete="off">
+          <h2>Bestenliste</h2>
+          <p id="finalScoreText">0 Punkte</p>
+          <label class="name-field">
+            <span>Name</span>
+            <input id="playerName" name="playerName" maxlength="14" placeholder="Dein Name" />
+          </label>
+          <div class="leaderboard-actions">
+            <button id="saveScoreButton" type="submit">Eintragen</button>
+            <button id="startOverButton" type="button">Neu starten</button>
+          </div>
+          <ol id="leaderboardList" class="leaderboard-list"></ol>
+        </form>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
