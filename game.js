@@ -1,0 +1,1257 @@
+(function () {
+  "use strict";
+
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+  const levelNameEl = document.getElementById("levelName");
+  const shotsLeftEl = document.getElementById("shotsLeft");
+  const scoreEl = document.getElementById("score");
+  const statusEl = document.getElementById("statusMessage");
+  const resetButton = document.getElementById("resetButton");
+  const nextButton = document.getElementById("nextButton");
+  const leaderboardPanel = document.getElementById("leaderboardPanel");
+  const scoreForm = document.getElementById("scoreForm");
+  const finalScoreText = document.getElementById("finalScoreText");
+  const playerNameInput = document.getElementById("playerName");
+  const leaderboardList = document.getElementById("leaderboardList");
+  const startOverButton = document.getElementById("startOverButton");
+
+  const WORLD = { width: 960, height: 540, ground: 484 };
+  const GRAVITY = 635;
+  const PROJECTILE_GRAVITY = 480;
+  const MAX_PULL = 146;
+  const LAUNCH_POWER = 7.15;
+  const FALL_DAMAGE_SPEED = 165;
+  const PHYSICS_STEP = 1 / 120;
+  const BALL_ROLL_FRICTION = 0.996;
+  const BALL_AIR_DRAG = 0.999;
+  const PULL_FLOOR_MARGIN = 8;
+  const PULL_SIDE_MARGIN = 8;
+  const LEADERBOARD_KEY = "sling-shot-sky-leaderboard-v1";
+  const PLAYER_NAME_KEY = "sling-shot-sky-player-name";
+
+  const levels = [
+    {
+      name: "Level 1",
+      shots: 4,
+      sling: { x: 142, y: 390 },
+      targets: [
+        { x: 720, y: 463, r: 21 },
+        { x: 815, y: 384, r: 19 },
+      ],
+      blocks: [
+        { x: 694, y: 444, w: 22, h: 78, material: "wood" },
+        { x: 782, y: 444, w: 22, h: 78, material: "wood" },
+        { x: 738, y: 398, w: 118, h: 20, material: "wood" },
+        { x: 828, y: 452, w: 68, h: 22, material: "stone" },
+      ],
+    },
+    {
+      name: "Level 2",
+      shots: 4,
+      sling: { x: 142, y: 392 },
+      targets: [
+        { x: 678, y: 464, r: 20 },
+        { x: 760, y: 346, r: 18 },
+        { x: 840, y: 464, r: 20 },
+      ],
+      blocks: [
+        { x: 650, y: 440, w: 24, h: 88, material: "wood" },
+        { x: 708, y: 440, w: 24, h: 88, material: "wood" },
+        { x: 679, y: 388, w: 98, h: 20, material: "wood" },
+        { x: 735, y: 342, w: 24, h: 74, material: "stone" },
+        { x: 789, y: 342, w: 24, h: 74, material: "stone" },
+        { x: 762, y: 296, w: 96, h: 20, material: "wood" },
+        { x: 812, y: 440, w: 24, h: 88, material: "wood" },
+        { x: 870, y: 440, w: 24, h: 88, material: "wood" },
+        { x: 841, y: 388, w: 98, h: 20, material: "wood" },
+      ],
+    },
+    {
+      name: "Level 3",
+      shots: 5,
+      sling: { x: 142, y: 392 },
+      targets: [
+        { x: 640, y: 464, r: 20 },
+        { x: 742, y: 414, r: 18 },
+        { x: 842, y: 464, r: 20 },
+        { x: 800, y: 304, r: 18 },
+      ],
+      blocks: [
+        { x: 610, y: 442, w: 24, h: 84, material: "wood" },
+        { x: 670, y: 442, w: 24, h: 84, material: "wood" },
+        { x: 640, y: 392, w: 94, h: 20, material: "glass" },
+        { x: 716, y: 420, w: 24, h: 126, material: "stone" },
+        { x: 774, y: 420, w: 24, h: 126, material: "stone" },
+        { x: 745, y: 348, w: 108, h: 20, material: "wood" },
+        { x: 776, y: 292, w: 24, h: 92, material: "glass" },
+        { x: 824, y: 292, w: 24, h: 92, material: "glass" },
+        { x: 800, y: 236, w: 92, h: 20, material: "wood" },
+        { x: 812, y: 442, w: 24, h: 84, material: "wood" },
+        { x: 872, y: 442, w: 24, h: 84, material: "wood" },
+        { x: 842, y: 392, w: 94, h: 20, material: "glass" },
+      ],
+    },
+  ];
+
+  const materialData = {
+    wood: { health: 60, density: 1, fill: "#a86b36", edge: "#6d4524" },
+    stone: { health: 92, density: 1.35, fill: "#84919b", edge: "#57636c" },
+    glass: { health: 42, density: 0.72, fill: "#67b9c7", edge: "#2d8191" },
+  };
+
+  const state = {
+    levelIndex: 0,
+    level: null,
+    viewScale: 1,
+    viewX: 0,
+    viewY: 0,
+    cssWidth: 1,
+    cssHeight: 1,
+    dpr: 1,
+    shotsLeft: 0,
+    score: 0,
+    projectile: null,
+    blocks: [],
+    targets: [],
+    particles: [],
+    dragging: false,
+    messageTimer: 0,
+    levelDone: false,
+    gameOver: false,
+    nextShotAt: 0,
+    restartAt: 0,
+    shake: 0,
+    lastTime: performance.now(),
+  };
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function length(x, y) {
+    return Math.hypot(x, y);
+  }
+
+  function rand(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    state.dpr = dpr;
+    state.cssWidth = Math.max(320, rect.width);
+    state.cssHeight = Math.max(420, rect.height);
+    canvas.width = Math.floor(state.cssWidth * dpr);
+    canvas.height = Math.floor(state.cssHeight * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    state.viewScale = Math.min(state.cssWidth / WORLD.width, state.cssHeight / WORLD.height);
+    state.viewX = (state.cssWidth - WORLD.width * state.viewScale) / 2;
+    state.viewY = (state.cssHeight - WORLD.height * state.viewScale) / 2;
+  }
+
+  function pointerToWorld(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left - state.viewX) / state.viewScale,
+      y: (event.clientY - rect.top - state.viewY) / state.viewScale,
+    };
+  }
+
+  function buildBlock(def) {
+    const material = materialData[def.material];
+    return {
+      type: "block",
+      x: def.x,
+      y: def.y,
+      w: def.w,
+      h: def.h,
+      vx: 0,
+      vy: 0,
+      angle: 0,
+      av: 0,
+      dynamic: false,
+      material: def.material,
+      health: material.health,
+      maxHealth: material.health,
+      mass: Math.max(0.6, (def.w * def.h * material.density) / 1200),
+      fill: material.fill,
+      edge: material.edge,
+      alive: true,
+    };
+  }
+
+  function buildTarget(def) {
+    return {
+      type: "target",
+      x: def.x,
+      y: def.y,
+      r: def.r,
+      vx: 0,
+      vy: 0,
+      angle: 0,
+      av: 0,
+      health: 100,
+      maxHealth: 100,
+      mass: 1.15,
+      dynamic: false,
+      alive: true,
+      fallCooldown: 0,
+      hurtFlash: 0,
+      blink: rand(0, 1),
+    };
+  }
+
+  function spawnProjectile() {
+    const sling = state.level.sling;
+    state.projectile = {
+      x: sling.x,
+      y: sling.y,
+      r: 17,
+      vx: 0,
+      vy: 0,
+      launched: false,
+      age: 0,
+      resting: false,
+    };
+    state.dragging = false;
+  }
+
+  function loadLevel(index) {
+    state.levelIndex = (index + levels.length) % levels.length;
+    state.level = levels[state.levelIndex];
+    state.shotsLeft = state.level.shots;
+    state.blocks = state.level.blocks.map(buildBlock);
+    state.targets = state.level.targets.map(buildTarget);
+    state.particles = [];
+    state.levelDone = false;
+    state.gameOver = false;
+    state.nextShotAt = 0;
+    state.restartAt = 0;
+    state.shake = 0;
+    spawnProjectile();
+    hideMessage();
+    updateHud();
+  }
+
+  function updateHud() {
+    levelNameEl.textContent = state.level.name;
+    shotsLeftEl.textContent = String(state.shotsLeft);
+    scoreEl.textContent = String(state.score);
+  }
+
+  function showMessage(text, hold) {
+    statusEl.textContent = text;
+    statusEl.classList.add("is-visible");
+    state.messageTimer = hold === undefined ? 2.2 : hold;
+  }
+
+  function hideMessage() {
+    statusEl.classList.remove("is-visible");
+    statusEl.textContent = "";
+    state.messageTimer = 0;
+  }
+
+  function readLeaderboard() {
+    try {
+      const entries = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
+      return Array.isArray(entries) ? entries.filter((entry) => entry && entry.name && Number.isFinite(entry.score)) : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writeLeaderboard(entries) {
+    try {
+      localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries.slice(0, 10)));
+    } catch (error) {
+      showMessage("Bestenliste konnte hier nicht gespeichert werden", 2.4);
+    }
+  }
+
+  function cleanPlayerName(name) {
+    const clean = name.trim().replace(/[<>]/g, "").slice(0, 14);
+    return clean || "Spieler";
+  }
+
+  function renderLeaderboard() {
+    const entries = readLeaderboard();
+    leaderboardList.innerHTML = "";
+
+    if (!entries.length) {
+      const item = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = "Noch kein Eintrag";
+      const value = document.createElement("span");
+      value.textContent = "-";
+      item.append(label, value);
+      leaderboardList.append(item);
+      return;
+    }
+
+    entries.forEach((entry, index) => {
+      const item = document.createElement("li");
+      const name = document.createElement("span");
+      const score = document.createElement("span");
+      name.textContent = `${index + 1}. ${entry.name}`;
+      score.textContent = `${entry.score} Punkte`;
+      item.append(name, score);
+      leaderboardList.append(item);
+    });
+  }
+
+  function showLeaderboard() {
+    finalScoreText.textContent = `${state.score} Punkte`;
+    try {
+      playerNameInput.value = localStorage.getItem(PLAYER_NAME_KEY) || "";
+    } catch (error) {
+      playerNameInput.value = "";
+    }
+    leaderboardPanel.hidden = false;
+    renderLeaderboard();
+    window.setTimeout(() => playerNameInput.focus(), 80);
+  }
+
+  function hideLeaderboard() {
+    leaderboardPanel.hidden = true;
+  }
+
+  function saveScore(event) {
+    event.preventDefault();
+    const name = cleanPlayerName(playerNameInput.value);
+    const entries = readLeaderboard();
+    entries.push({ name, score: state.score, date: new Date().toISOString() });
+    entries.sort((a, b) => b.score - a.score);
+    writeLeaderboard(entries);
+    try {
+      localStorage.setItem(PLAYER_NAME_KEY, name);
+    } catch (error) {
+      // Some private browser modes block local storage.
+    }
+    playerNameInput.value = name;
+    renderLeaderboard();
+  }
+
+  function restartRun() {
+    state.score = 0;
+    hideLeaderboard();
+    loadLevel(0);
+    showMessage("Neuer Versuch ab Level 1", 1.8);
+    updateHud();
+  }
+
+  function emitParticles(x, y, color, count, speed) {
+    for (let i = 0; i < count; i += 1) {
+      const angle = rand(0, Math.PI * 2);
+      const power = rand(speed * 0.25, speed);
+      state.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * power,
+        vy: Math.sin(angle) * power - rand(10, 80),
+        r: rand(2, 5),
+        life: rand(0.35, 0.9),
+        maxLife: 0.9,
+        color,
+      });
+    }
+  }
+
+  function damageTarget(target, amount, sourceSpeed, options) {
+    if (!target.alive) return;
+    const lethalSpeed = options && options.lethalSpeed !== undefined ? options.lethalSpeed : 520;
+    target.health -= amount;
+    target.dynamic = true;
+    target.hurtFlash = Math.max(target.hurtFlash, clamp(amount / 58, 0.16, 0.75));
+    if (target.health <= 0 || sourceSpeed > lethalSpeed) {
+      target.alive = false;
+      state.score += 500;
+      state.shake = Math.max(state.shake, 8);
+      emitParticles(target.x, target.y, "#6bd18f", 18, 210);
+      updateHud();
+    }
+  }
+
+  function damageBlock(block, amount, sourceSpeed) {
+    if (!block.alive) return;
+    block.health -= amount;
+    block.dynamic = true;
+    if (block.health <= 0 || sourceSpeed > 760) {
+      block.alive = false;
+      state.score += 85;
+      state.shake = Math.max(state.shake, 5);
+      emitParticles(block.x, block.y, block.fill, 14, 160);
+      updateHud();
+    }
+  }
+
+  function targetHasSupport(target) {
+    if (target.y + target.r >= WORLD.ground - 2) return true;
+
+    const footY = target.y + target.r;
+    const targetLeft = target.x - target.r * 0.82;
+    const targetRight = target.x + target.r * 0.82;
+
+    return state.blocks.some((block) => {
+      if (!block.alive || block.dynamic) return false;
+      const blockLeft = block.x - block.w / 2 - 4;
+      const blockRight = block.x + block.w / 2 + 4;
+      const blockTop = block.y - block.h / 2;
+      const blockBottom = block.y + block.h / 2;
+      const overlap = Math.min(targetRight, blockRight) - Math.max(targetLeft, blockLeft);
+      return overlap > 0 && footY >= blockTop - 6 && footY <= blockBottom + 8;
+    });
+  }
+
+  function releaseUnsupportedTargets() {
+    for (const target of state.targets) {
+      if (!target.alive || target.dynamic || targetHasSupport(target)) continue;
+      target.dynamic = true;
+      target.vy = Math.max(target.vy, 24);
+      target.av += rand(-1.1, 1.1);
+    }
+  }
+
+  function reflectCircle(circle, nx, ny, bounce) {
+    const dot = circle.vx * nx + circle.vy * ny;
+    if (dot < 0) {
+      circle.vx -= (1 + bounce) * dot * nx;
+      circle.vy -= (1 + bounce) * dot * ny;
+    }
+  }
+
+  function collideProjectileWithBlock(projectile, block) {
+    if (!projectile.launched || !block.alive) return;
+    const left = block.x - block.w / 2;
+    const right = block.x + block.w / 2;
+    const top = block.y - block.h / 2;
+    const bottom = block.y + block.h / 2;
+    const nearestX = clamp(projectile.x, left, right);
+    const nearestY = clamp(projectile.y, top, bottom);
+    let dx = projectile.x - nearestX;
+    let dy = projectile.y - nearestY;
+    let dist = Math.hypot(dx, dy);
+
+    if (dist >= projectile.r) return;
+
+    if (dist < 0.001) {
+      dx = projectile.x < block.x ? -1 : 1;
+      dy = -0.2;
+      dist = Math.hypot(dx, dy);
+    }
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const overlap = projectile.r - dist;
+    const speed = Math.hypot(projectile.vx, projectile.vy);
+    const impact = Math.abs(projectile.vx * nx + projectile.vy * ny) + speed * 0.18;
+
+    projectile.x += nx * overlap;
+    projectile.y += ny * overlap;
+    reflectCircle(projectile, nx, ny, 0.42);
+    projectile.vx *= 0.82;
+    projectile.vy *= 0.82;
+
+    block.vx += (-nx * impact * 0.45) / block.mass;
+    block.vy += (-ny * impact * 0.28) / block.mass;
+    block.av += (-nx * 0.9 + rand(-0.25, 0.25)) * impact * 0.004;
+    damageBlock(block, impact * 0.075, speed);
+    state.score += Math.round(impact * 0.03);
+    state.shake = Math.max(state.shake, clamp(impact * 0.012, 0, 7));
+    emitParticles(nearestX, nearestY, block.fill, 4, 90);
+    updateHud();
+  }
+
+  function collideProjectileWithTarget(projectile, target) {
+    if (!projectile.launched || !target.alive) return;
+    const dx = projectile.x - target.x;
+    const dy = projectile.y - target.y;
+    const dist = Math.hypot(dx, dy);
+    const minDist = projectile.r + target.r;
+    if (dist >= minDist) return;
+
+    const nx = dist > 0 ? dx / dist : 1;
+    const ny = dist > 0 ? dy / dist : 0;
+    const overlap = minDist - dist;
+    const speed = Math.hypot(projectile.vx, projectile.vy);
+    const impact = Math.abs(projectile.vx * nx + projectile.vy * ny) + speed * 0.2;
+
+    projectile.x += nx * overlap * 0.55;
+    projectile.y += ny * overlap * 0.55;
+    target.x -= nx * overlap * 0.45;
+    target.y -= ny * overlap * 0.45;
+    reflectCircle(projectile, nx, ny, 0.35);
+    projectile.vx *= 0.72;
+    projectile.vy *= 0.72;
+    target.vx += (-nx * impact * 0.52) / target.mass;
+    target.vy += (-ny * impact * 0.42) / target.mass;
+    target.av += -nx * impact * 0.01;
+    damageTarget(target, impact * 0.13, speed);
+    state.score += Math.round(impact * 0.05);
+    state.shake = Math.max(state.shake, clamp(impact * 0.014, 0, 8));
+    emitParticles(target.x, target.y, "#65cdd1", 5, 100);
+    updateHud();
+  }
+
+  function collideBlockWithTarget(block, target) {
+    if (!block.alive || !target.alive || (!block.dynamic && !target.dynamic)) return;
+    const left = block.x - block.w / 2;
+    const right = block.x + block.w / 2;
+    const top = block.y - block.h / 2;
+    const bottom = block.y + block.h / 2;
+    const nearestX = clamp(target.x, left, right);
+    const nearestY = clamp(target.y, top, bottom);
+    let dx = target.x - nearestX;
+    let dy = target.y - nearestY;
+    let dist = Math.hypot(dx, dy);
+
+    if (dist >= target.r) return;
+
+    if (dist < 0.001) {
+      dx = target.x < block.x ? -1 : 1;
+      dy = -0.15;
+      dist = Math.hypot(dx, dy);
+    }
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const overlap = target.r - dist;
+    const relVx = block.vx - target.vx;
+    const relVy = block.vy - target.vy;
+    const speed = Math.hypot(relVx, relVy);
+    const materialCrush = block.material === "stone" ? 0.14 : block.material === "wood" ? 0.11 : 0.095;
+    const impact = speed * (block.dynamic ? block.mass : 1.25);
+    const dot = target.vx * nx + target.vy * ny;
+
+    target.x += nx * overlap * (block.dynamic ? 0.72 : 1);
+    target.y += ny * overlap * (block.dynamic ? 0.72 : 1);
+    if (block.dynamic) {
+      block.x -= nx * overlap * 0.28;
+      block.y -= ny * overlap * 0.28;
+    }
+
+    if (dot < 0) {
+      target.vx -= dot * nx * 1.18;
+      target.vy -= dot * ny * 1.18;
+    }
+    target.vx += nx * impact * 0.16;
+    target.vy += ny * impact * 0.12;
+    if (block.dynamic) {
+      block.vx -= (nx * impact * 0.13) / block.mass;
+      block.vy -= (ny * impact * 0.1) / block.mass;
+      block.av += nx * impact * 0.003;
+    }
+    target.dynamic = true;
+    damageTarget(target, impact * materialCrush, speed, { lethalSpeed: 430 });
+    if (impact > 55) {
+      state.score += Math.round(impact * 0.04);
+      state.shake = Math.max(state.shake, clamp(impact * 0.014, 0, 6));
+      emitParticles(target.x, target.y, block.fill, 4, 105);
+      updateHud();
+    }
+  }
+
+  function collideBlocks() {
+    for (let i = 0; i < state.blocks.length; i += 1) {
+      const a = state.blocks[i];
+      if (!a.alive) continue;
+
+      for (let j = i + 1; j < state.blocks.length; j += 1) {
+        const b = state.blocks[j];
+        if (!b.alive || (!a.dynamic && !b.dynamic)) continue;
+
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const overlapX = a.w / 2 + b.w / 2 - Math.abs(dx);
+        const overlapY = a.h / 2 + b.h / 2 - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+
+        const nx = overlapX < overlapY ? (dx >= 0 ? 1 : -1) : 0;
+        const ny = overlapX < overlapY ? 0 : dy >= 0 ? 1 : -1;
+        const overlap = Math.min(overlapX, overlapY);
+        const relVx = b.vx - a.vx;
+        const relVy = b.vy - a.vy;
+        const closingSpeed = relVx * nx + relVy * ny;
+        const impact = Math.abs(closingSpeed) * (a.mass + b.mass) * 0.5;
+
+        if (impact > 24) {
+          a.dynamic = true;
+          b.dynamic = true;
+        }
+
+        const invA = a.dynamic ? 1 / a.mass : 0;
+        const invB = b.dynamic ? 1 / b.mass : 0;
+        const invSum = invA + invB;
+        if (invSum === 0) continue;
+
+        const correction = (overlap + 0.3) / invSum;
+        if (a.dynamic) {
+          a.x -= nx * correction * invA;
+          a.y -= ny * correction * invA;
+        }
+        if (b.dynamic) {
+          b.x += nx * correction * invB;
+          b.y += ny * correction * invB;
+        }
+
+        if (closingSpeed < 0) {
+          const bounce = 0.12;
+          const impulse = (-(1 + bounce) * closingSpeed) / invSum;
+          const ix = impulse * nx;
+          const iy = impulse * ny;
+
+          if (a.dynamic) {
+            a.vx -= ix * invA;
+            a.vy -= iy * invA;
+            a.av -= (ny * ix - nx * iy) * 0.004;
+          }
+          if (b.dynamic) {
+            b.vx += ix * invB;
+            b.vy += iy * invB;
+            b.av += (ny * ix - nx * iy) * 0.004;
+          }
+
+          const tx = -ny;
+          const ty = nx;
+          const tangentSpeed = relVx * tx + relVy * ty;
+          const frictionImpulse = clamp(-tangentSpeed / invSum, -impulse * 0.22, impulse * 0.22);
+          const fx = frictionImpulse * tx;
+          const fy = frictionImpulse * ty;
+
+          if (a.dynamic) {
+            a.vx -= fx * invA;
+            a.vy -= fy * invA;
+          }
+          if (b.dynamic) {
+            b.vx += fx * invB;
+            b.vy += fy * invB;
+          }
+        }
+
+        if (impact > 42) {
+          damageBlock(a, impact * 0.018, impact);
+          damageBlock(b, impact * 0.018, impact);
+          state.shake = Math.max(state.shake, clamp(impact * 0.012, 0, 5));
+          emitParticles((a.x + b.x) / 2, (a.y + b.y) / 2, "#b99566", 3, 80);
+        }
+      }
+    }
+  }
+
+  function updateProjectile(dt, now) {
+    const p = state.projectile;
+    if (!p || !p.launched) return;
+
+    p.age += dt;
+    p.vy += PROJECTILE_GRAVITY * dt;
+    p.vx *= Math.pow(BALL_AIR_DRAG, dt * 60);
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    if (p.y + p.r > WORLD.ground) {
+      const landingSpeed = p.vy;
+      p.y = WORLD.ground - p.r;
+      if (landingSpeed > 85) {
+        p.vy = -landingSpeed * 0.38;
+        p.vx *= 0.94;
+        if (landingSpeed > 180) {
+          state.shake = Math.max(state.shake, clamp(landingSpeed * 0.01, 0, 4));
+          emitParticles(p.x, WORLD.ground - 2, "#6ea65a", 4, 65);
+        }
+      } else {
+        p.vy = 0;
+        p.vx *= Math.pow(BALL_ROLL_FRICTION, dt * 60);
+      }
+      if (Math.abs(p.vx) < 5) p.vx = 0;
+    }
+
+    if (p.x - p.r < 8) {
+      p.x = 8 + p.r;
+      p.vx = Math.abs(p.vx) * 0.38;
+    }
+
+    if (p.x > WORLD.width + 120 || p.y > WORLD.height + 140 || p.age > 8.8) {
+      queueNextShot(now);
+      return;
+    }
+
+    const speed = Math.hypot(p.vx, p.vy);
+    if (p.age > 1.1 && speed < 22 && p.y + p.r >= WORLD.ground - 1) {
+      queueNextShot(now);
+    }
+  }
+
+  function queueNextShot(now) {
+    if (state.levelDone || state.gameOver || state.nextShotAt) return;
+    state.nextShotAt = now + 680;
+  }
+
+  function updateBlocks(dt) {
+    for (const block of state.blocks) {
+      if (!block.alive || !block.dynamic) continue;
+
+      block.vy += GRAVITY * dt;
+      block.x += block.vx * dt;
+      block.y += block.vy * dt;
+      block.angle += block.av * dt;
+      block.vx *= Math.pow(0.992, dt * 30);
+      block.av *= Math.pow(0.985, dt * 30);
+
+      if (block.y + block.h / 2 > WORLD.ground) {
+        block.y = WORLD.ground - block.h / 2;
+        if (block.vy > 0) block.vy *= -0.16;
+        block.vx *= Math.pow(0.78, dt * 30);
+        block.av *= Math.pow(0.72, dt * 30);
+      }
+
+      if (block.x - block.w / 2 < 0) {
+        block.x = block.w / 2;
+        block.vx = Math.abs(block.vx) * 0.25;
+      }
+
+      if (block.x + block.w / 2 > WORLD.width) {
+        block.x = WORLD.width - block.w / 2;
+        block.vx = -Math.abs(block.vx) * 0.25;
+      }
+
+      if (Math.abs(block.vx) + Math.abs(block.vy) + Math.abs(block.av * 40) < 8 && block.y + block.h / 2 >= WORLD.ground - 1) {
+        block.vx *= 0.8;
+        block.vy = 0;
+        block.av *= 0.8;
+      }
+    }
+  }
+
+  function updateTargets(dt) {
+    for (const target of state.targets) {
+      if (!target.alive || !target.dynamic) continue;
+
+      target.fallCooldown = Math.max(0, target.fallCooldown - dt);
+      target.hurtFlash = Math.max(0, target.hurtFlash - dt * 2.6);
+      target.vy += GRAVITY * dt;
+      target.x += target.vx * dt;
+      target.y += target.vy * dt;
+      target.angle += target.av * dt;
+      target.vx *= Math.pow(0.993, dt * 30);
+      target.av *= Math.pow(0.988, dt * 30);
+
+      if (target.y + target.r > WORLD.ground) {
+        const landingSpeed = target.vy;
+        target.y = WORLD.ground - target.r;
+        if (landingSpeed > FALL_DAMAGE_SPEED && target.fallCooldown <= 0) {
+          const fallDamage = clamp((landingSpeed - FALL_DAMAGE_SPEED) * 0.16, 5, 38);
+          damageTarget(target, fallDamage, landingSpeed, { lethalSpeed: Infinity });
+          state.score += Math.round(fallDamage * 2);
+          state.shake = Math.max(state.shake, clamp(fallDamage * 0.12, 0, 5));
+          emitParticles(target.x, target.y + target.r * 0.65, "#88cf78", 5, 90);
+          target.fallCooldown = 0.38;
+          updateHud();
+        }
+        if (target.vy > 0) target.vy *= -0.22;
+        target.vx *= Math.pow(0.72, dt * 30);
+        target.av *= Math.pow(0.76, dt * 30);
+        if (Math.abs(target.vy) < 30) target.vy = 0;
+      }
+
+      if (target.x - target.r < 0) {
+        target.x = target.r;
+        target.vx = Math.abs(target.vx) * 0.28;
+      }
+
+      if (target.x + target.r > WORLD.width) {
+        target.x = WORLD.width - target.r;
+        target.vx = -Math.abs(target.vx) * 0.28;
+      }
+
+      if (target.y > WORLD.height + 80) {
+        damageTarget(target, 999, 999);
+      }
+    }
+  }
+
+  function updateParticles(dt) {
+    for (const particle of state.particles) {
+      particle.life -= dt;
+      particle.vy += GRAVITY * 0.5 * dt;
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      if (particle.y > WORLD.ground) {
+        particle.y = WORLD.ground;
+        particle.vy *= -0.2;
+        particle.vx *= 0.65;
+      }
+    }
+    state.particles = state.particles.filter((particle) => particle.life > 0);
+  }
+
+  function physicsStep(dt, now) {
+    updateProjectile(dt, now);
+    updateBlocks(dt);
+    releaseUnsupportedTargets();
+    updateTargets(dt);
+
+    const p = state.projectile;
+    if (p && p.launched) {
+      for (const block of state.blocks) collideProjectileWithBlock(p, block);
+      for (const target of state.targets) collideProjectileWithTarget(p, target);
+    }
+
+    for (const block of state.blocks) {
+      for (const target of state.targets) collideBlockWithTarget(block, target);
+    }
+
+    collideBlocks();
+  }
+
+  function updateGame(dt, now) {
+    if (state.messageTimer > 0) {
+      state.messageTimer -= dt;
+      if (state.messageTimer <= 0 && !state.levelDone && !state.gameOver) hideMessage();
+    }
+
+    const steps = Math.max(1, Math.ceil(dt / PHYSICS_STEP));
+    const stepDt = dt / steps;
+    for (let i = 0; i < steps; i += 1) {
+      physicsStep(stepDt, now);
+    }
+    updateParticles(dt);
+
+    const remaining = state.targets.some((target) => target.alive);
+    if (!remaining && !state.levelDone) {
+      state.levelDone = true;
+      state.score += state.shotsLeft * 350;
+      state.shake = Math.max(state.shake, 9);
+      if (state.levelIndex === levels.length - 1) {
+        showMessage("Alle Level geschafft!", 2.4);
+        showLeaderboard();
+      } else {
+        showMessage("Level geschafft!", 999);
+      }
+      updateHud();
+    }
+
+    if (state.restartAt && now >= state.restartAt) {
+      restartRun();
+      return;
+    }
+
+    if (state.nextShotAt && now >= state.nextShotAt) {
+      state.nextShotAt = 0;
+      if (!state.levelDone && state.shotsLeft > 0) {
+        spawnProjectile();
+      } else if (!state.levelDone) {
+        state.gameOver = true;
+        state.restartAt = now + 1450;
+        showMessage("Verloren - Neustart bei Level 1", 1.45);
+      }
+    }
+
+    state.shake *= Math.pow(0.02, dt);
+  }
+
+  function drawFullBackground() {
+    ctx.save();
+    ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+    const sky = ctx.createLinearGradient(0, 0, 0, state.cssHeight);
+    sky.addColorStop(0, "#73bee9");
+    sky.addColorStop(0.48, "#bce7f6");
+    sky.addColorStop(0.72, "#f0edc8");
+    sky.addColorStop(1, "#74ab55");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, state.cssWidth, state.cssHeight);
+    ctx.restore();
+  }
+
+  function drawCloud(x, y, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.beginPath();
+    ctx.arc(0, 8, 17, Math.PI, 0);
+    ctx.arc(22, -1, 24, Math.PI, 0);
+    ctx.arc(52, 7, 18, Math.PI, 0);
+    ctx.rect(-2, 7, 58, 18);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawWorldBackground() {
+    drawCloud(92, 92, 1);
+    drawCloud(312, 72, 0.75);
+    drawCloud(585, 104, 1.1);
+    drawCloud(810, 70, 0.7);
+
+    ctx.fillStyle = "rgba(66, 133, 91, 0.22)";
+    ctx.beginPath();
+    ctx.moveTo(0, WORLD.ground);
+    ctx.bezierCurveTo(170, 390, 270, 426, 430, WORLD.ground);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(430, WORLD.ground);
+    ctx.bezierCurveTo(590, 380, 760, 422, 960, WORLD.ground);
+    ctx.fill();
+
+    ctx.fillStyle = "#76b35a";
+    ctx.fillRect(0, WORLD.ground, WORLD.width, WORLD.height - WORLD.ground);
+
+    ctx.fillStyle = "#5e9c4a";
+    for (let x = 0; x < WORLD.width; x += 18) {
+      const blade = 2 + Math.abs(Math.sin(x * 0.37)) * 4;
+      ctx.beginPath();
+      ctx.moveTo(x, WORLD.ground + 2);
+      ctx.lineTo(x + 7, WORLD.ground - blade);
+      ctx.lineTo(x + 14, WORLD.ground + 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#477744";
+    ctx.fillRect(0, WORLD.ground + 42, WORLD.width, 12);
+
+    ctx.fillStyle = "rgba(49, 73, 49, 0.28)";
+    ctx.fillRect(0, 0, 4, WORLD.height);
+    ctx.fillRect(WORLD.width - 4, 0, 4, WORLD.height);
+
+    ctx.fillStyle = "#6b5a3b";
+    ctx.fillRect(0, WORLD.ground - 44, 10, 98);
+    ctx.fillRect(WORLD.width - 10, WORLD.ground - 44, 10, 98);
+    ctx.fillStyle = "#3f6f45";
+    ctx.fillRect(0, WORLD.ground - 52, 18, 10);
+    ctx.fillRect(WORLD.width - 18, WORLD.ground - 52, 18, 10);
+  }
+
+  function drawSling() {
+    const sling = state.level.sling;
+    const p = state.projectile;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#5b341f";
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.moveTo(sling.x - 20, WORLD.ground);
+    ctx.quadraticCurveTo(sling.x - 16, sling.y + 48, sling.x - 33, sling.y - 42);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(sling.x + 18, WORLD.ground);
+    ctx.quadraticCurveTo(sling.x + 18, sling.y + 48, sling.x + 34, sling.y - 40);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#7b4a2b";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(sling.x - 7, WORLD.ground);
+    ctx.quadraticCurveTo(sling.x, sling.y + 30, sling.x, sling.y - 10);
+    ctx.stroke();
+
+    if (p && !p.launched) {
+      ctx.strokeStyle = "#36231a";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(sling.x - 34, sling.y - 42);
+      ctx.lineTo(p.x, p.y);
+      ctx.lineTo(sling.x + 34, sling.y - 40);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawTrajectory() {
+    if (!state.dragging || !state.projectile) return;
+
+    const p = state.projectile;
+    const sling = state.level.sling;
+    let x = p.x;
+    let y = p.y;
+    const vx = (sling.x - p.x) * LAUNCH_POWER;
+    const vy = (sling.y - p.y) * LAUNCH_POWER;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(22, 35, 55, 0.36)";
+    for (let i = 1; i < 34; i += 1) {
+      const t = i * 0.082;
+      x = p.x + vx * t;
+      y = p.y + vy * t + 0.5 * PROJECTILE_GRAVITY * t * t;
+      if (y > WORLD.ground) break;
+      ctx.globalAlpha = 1 - i / 38;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawProjectile() {
+    const p = state.projectile;
+    if (!p) return;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    const angle = p.launched ? Math.atan2(p.vy, p.vx) * 0.18 : 0;
+    ctx.rotate(angle);
+    const glow = ctx.createRadialGradient(-6, -8, 2, 0, 0, p.r + 12);
+    glow.addColorStop(0, "#fff2b8");
+    glow.addColorStop(0.36, "#f2783d");
+    glow.addColorStop(1, "#b8282f");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8f242a";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.beginPath();
+    ctx.arc(-6, -7, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBlock(block) {
+    if (!block.alive) return;
+    const damage = 1 - block.health / block.maxHealth;
+
+    ctx.save();
+    ctx.translate(block.x, block.y);
+    ctx.rotate(block.angle);
+    ctx.fillStyle = block.fill;
+    ctx.strokeStyle = block.edge;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(-block.w / 2, -block.h / 2, block.w, block.h, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.34;
+    ctx.strokeStyle = "#fff4cf";
+    ctx.lineWidth = 2;
+    if (block.w > block.h) {
+      ctx.beginPath();
+      ctx.moveTo(-block.w / 2 + 10, 0);
+      ctx.lineTo(block.w / 2 - 10, 0);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(0, -block.h / 2 + 10);
+      ctx.lineTo(0, block.h / 2 - 10);
+      ctx.stroke();
+    }
+
+    if (damage > 0.18) {
+      ctx.globalAlpha = clamp(damage, 0.2, 0.8);
+      ctx.strokeStyle = "#30251e";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-block.w * 0.2, -block.h * 0.3);
+      ctx.lineTo(block.w * 0.04, -block.h * 0.05);
+      ctx.lineTo(-block.w * 0.08, block.h * 0.24);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawTarget(target) {
+    if (!target.alive) return;
+    const damage = 1 - target.health / target.maxHealth;
+
+    ctx.save();
+    ctx.translate(target.x, target.y);
+    ctx.rotate(target.angle);
+
+    const body = ctx.createRadialGradient(-7, -9, 2, 0, 0, target.r + 7);
+    body.addColorStop(0, "#b7ffe1");
+    body.addColorStop(0.58, "#5fc98a");
+    body.addColorStop(1, "#2a895d");
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(0, 0, target.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#1f6f54";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.strokeStyle = "#1f6f54";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-target.r * 0.35, -target.r * 0.88);
+    ctx.lineTo(-target.r * 0.55, -target.r * 1.22);
+    ctx.moveTo(target.r * 0.35, -target.r * 0.88);
+    ctx.lineTo(target.r * 0.55, -target.r * 1.22);
+    ctx.stroke();
+    ctx.fillStyle = "#ffd45f";
+    ctx.beginPath();
+    ctx.arc(-target.r * 0.58, -target.r * 1.25, 3, 0, Math.PI * 2);
+    ctx.arc(target.r * 0.58, -target.r * 1.25, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#f7fff8";
+    ctx.beginPath();
+    ctx.arc(-target.r * 0.34, -target.r * 0.12, target.r * 0.25, 0, Math.PI * 2);
+    ctx.arc(target.r * 0.34, -target.r * 0.12, target.r * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#19312f";
+    ctx.beginPath();
+    ctx.arc(-target.r * 0.32, -target.r * 0.08, target.r * 0.1, 0, Math.PI * 2);
+    ctx.arc(target.r * 0.32, -target.r * 0.08, target.r * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#19312f";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, target.r * 0.25, target.r * (0.22 + damage * 0.18), 0.12 * Math.PI, 0.88 * Math.PI);
+    ctx.stroke();
+
+    if (damage > 0.25) {
+      ctx.strokeStyle = "rgba(25,49,47,0.7)";
+      ctx.beginPath();
+      ctx.moveTo(-target.r * 0.5, -target.r * 0.55);
+      ctx.lineTo(-target.r * 0.22, -target.r * 0.36);
+      ctx.moveTo(target.r * 0.48, -target.r * 0.54);
+      ctx.lineTo(target.r * 0.18, -target.r * 0.35);
+      ctx.stroke();
+    }
+
+    if (target.hurtFlash > 0) {
+      ctx.globalAlpha = clamp(target.hurtFlash, 0, 0.55);
+      ctx.fillStyle = "#f05a42";
+      ctx.beginPath();
+      ctx.arc(0, 0, target.r + 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawParticles() {
+    for (const particle of state.particles) {
+      ctx.save();
+      ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
+      ctx.fillStyle = particle.color;
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, particle.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function render() {
+    drawFullBackground();
+    ctx.save();
+    ctx.translate(state.viewX, state.viewY);
+    ctx.scale(state.viewScale, state.viewScale);
+
+    if (state.shake > 0.2) {
+      ctx.translate(rand(-state.shake, state.shake), rand(-state.shake, state.shake));
+    }
+
+    drawWorldBackground();
+    drawTrajectory();
+    drawSling();
+    for (const block of state.blocks) drawBlock(block);
+    for (const target of state.targets) drawTarget(target);
+    drawProjectile();
+    drawParticles();
+    ctx.restore();
+  }
+
+  function frame(now) {
+    const dt = Math.min(1 / 30, (now - state.lastTime) / 1000 || 0);
+    state.lastTime = now;
+    updateGame(dt, now);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  function onPointerDown(event) {
+    const p = state.projectile;
+    if (!p || p.launched || state.levelDone || state.gameOver) return;
+    const point = pointerToWorld(event);
+    const nearProjectile = length(point.x - p.x, point.y - p.y) < 54;
+    const nearSling = length(point.x - state.level.sling.x, point.y - state.level.sling.y) < 92;
+    if (!nearProjectile && !nearSling) return;
+    state.dragging = true;
+    canvas.setPointerCapture(event.pointerId);
+    onPointerMove(event);
+  }
+
+  function onPointerMove(event) {
+    if (!state.dragging || !state.projectile) return;
+    const point = pointerToWorld(event);
+    const sling = state.level.sling;
+    const p = state.projectile;
+    const minX = p.r + PULL_SIDE_MARGIN;
+    const maxX = WORLD.width - p.r - PULL_SIDE_MARGIN;
+    const floorY = WORLD.ground - p.r - PULL_FLOOR_MARGIN;
+    let dx = point.x - sling.x;
+    let dy = point.y - sling.y;
+    const pull = length(dx, dy);
+    if (pull > MAX_PULL) {
+      dx = (dx / pull) * MAX_PULL;
+      dy = (dy / pull) * MAX_PULL;
+    }
+    if (sling.x + dx < minX) {
+      dx = minX - sling.x;
+    } else if (sling.x + dx > maxX) {
+      dx = maxX - sling.x;
+    }
+    if (sling.y + dy > floorY) {
+      dy = floorY - sling.y;
+    }
+    p.x = sling.x + dx;
+    p.y = sling.y + dy;
+  }
+
+  function onPointerUp(event) {
+    if (!state.dragging || !state.projectile) return;
+    const p = state.projectile;
+    const sling = state.level.sling;
+    const dx = sling.x - p.x;
+    const dy = sling.y - p.y;
+    const pull = length(dx, dy);
+
+    state.dragging = false;
+    canvas.releasePointerCapture(event.pointerId);
+
+    if (pull < 12) {
+      p.x = sling.x;
+      p.y = sling.y;
+      return;
+    }
+
+    p.vx = dx * LAUNCH_POWER;
+    p.vy = dy * LAUNCH_POWER;
+    p.launched = true;
+    p.age = 0;
+    state.shotsLeft = Math.max(0, state.shotsLeft - 1);
+    hideMessage();
+    updateHud();
+  }
+
+  resetButton.addEventListener("click", () => loadLevel(state.levelIndex));
+  nextButton.addEventListener("click", () => loadLevel(state.levelIndex + 1));
+  scoreForm.addEventListener("submit", saveScore);
+  startOverButton.addEventListener("click", restartRun);
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  window.addEventListener("resize", resizeCanvas);
+
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function roundRect(x, y, width, height, radius) {
+      const r = Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2);
+      this.moveTo(x + r, y);
+      this.arcTo(x + width, y, x + width, y + height, r);
+      this.arcTo(x + width, y + height, x, y + height, r);
+      this.arcTo(x, y + height, x, y, r);
+      this.arcTo(x, y, x + width, y, r);
+      return this;
+    };
+  }
+
+  resizeCanvas();
+  loadLevel(0);
+  requestAnimationFrame(frame);
+})();

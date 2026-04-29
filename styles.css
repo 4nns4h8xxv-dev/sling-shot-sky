@@ -1,0 +1,353 @@
+:root {
+  color-scheme: light;
+  --ink: #162337;
+  --paper: rgba(255, 255, 255, 0.78);
+  --paper-strong: rgba(255, 255, 255, 0.92);
+  --line: rgba(22, 35, 55, 0.18);
+  --accent: #d84535;
+  --accent-dark: #982f28;
+  --blue: #4c9fd5;
+  --green: #4c8c4a;
+  --gold: #efb23a;
+  --shadow: 0 16px 36px rgba(28, 40, 60, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: var(--ink);
+  background: #9fd3ef;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font: inherit;
+}
+
+.game-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-width: 320px;
+  min-height: 420px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, #80c6ee 0%, #bde6f4 55%, #eef2d9 56%, #8fc66a 100%);
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: grab;
+  outline: none;
+}
+
+#gameCanvas:active {
+  cursor: grabbing;
+}
+
+.hud {
+  position: absolute;
+  z-index: 3;
+  top: clamp(10px, 2.4vw, 22px);
+  left: 50%;
+  display: grid;
+  width: min(920px, calc(100vw - 20px));
+  min-height: 52px;
+  grid-template-columns: minmax(140px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.brand,
+.stats,
+.actions {
+  min-height: 48px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.brand-mark {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border: 3px solid #fff2c0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 32%, #fff3c0 0 16%, transparent 17%),
+    linear-gradient(135deg, var(--accent), #f27742 72%);
+  box-shadow: 0 3px 0 var(--accent-dark);
+}
+
+.stats {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.stats span {
+  display: inline-flex;
+  min-width: 84px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid rgba(22, 35, 55, 0.1);
+  border-radius: 7px;
+  background: var(--paper-strong);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stats b {
+  color: var(--accent-dark);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 8px;
+  pointer-events: auto;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(22, 35, 55, 0.18);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.icon-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(22, 35, 55, 0.34);
+  background: #fff8dc;
+}
+
+.icon-button:active {
+  transform: translateY(1px);
+}
+
+.status-message {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: clamp(18px, 5vw, 42px);
+  width: min(560px, calc(100vw - 28px));
+  min-height: 46px;
+  padding: 12px 16px;
+  transform: translateX(-50%) translateY(18px);
+  border: 1px solid rgba(22, 35, 55, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.status-message.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.leaderboard-panel {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(22, 35, 55, 0.26);
+  backdrop-filter: blur(6px);
+}
+
+.leaderboard-panel[hidden] {
+  display: none;
+}
+
+.leaderboard-box {
+  width: min(360px, calc(100vw - 32px));
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+.leaderboard-box h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.leaderboard-box p {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.name-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.name-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(22, 35, 55, 0.22);
+  border-radius: 7px;
+  padding: 0 11px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.leaderboard-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.leaderboard-actions button {
+  min-height: 40px;
+  border: 1px solid rgba(22, 35, 55, 0.2);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.leaderboard-actions button:first-child {
+  border-color: rgba(152, 47, 40, 0.25);
+  background: #d84535;
+  color: #ffffff;
+}
+
+.leaderboard-list {
+  display: grid;
+  gap: 6px;
+  max-height: 156px;
+  margin: 14px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style-position: inside;
+}
+
+.leaderboard-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(22, 35, 55, 0.1);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: rgba(255, 248, 220, 0.58);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+@media (max-width: 720px) {
+  .game-shell {
+    min-height: 520px;
+  }
+
+  .hud {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+  }
+
+  .brand {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .stats {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .stats span {
+    min-width: 76px;
+    height: 34px;
+    font-size: 12px;
+  }
+
+  .actions {
+    min-height: 44px;
+  }
+
+  .icon-button {
+    width: 34px;
+    height: 34px;
+    font-size: 22px;
+  }
+}
